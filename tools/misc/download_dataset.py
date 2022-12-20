@@ -69,6 +69,8 @@ def main():
         path.mkdir(parents=True, exist_ok=True)
     data2url = dict(
         # TODO: Support for downloading Panoptic Segmentation of COCO
+        # 现在dict的key不需要加引号了
+        # 下载文件完整性常用md5sum效验
         coco2017=[
             'http://images.cocodataset.org/zips/train2017.zip',
             'http://images.cocodataset.org/zips/val2017.zip',
@@ -84,7 +86,7 @@ def main():
             'http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtrainval_06-Nov-2007.tar',  # noqa
             'http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtest_06-Nov-2007.tar',  # noqa
             'http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCdevkit_08-Jun-2007.tar',  # noqa
-        ],
+        ]
     )
     url = data2url.get(args.dataset_name, None)
     if url is None:
