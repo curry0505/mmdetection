@@ -108,7 +108,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    cfg = Config.fromfile(args.config)
+    cfg = Config.fromfile(args.config) # 配置文件可以是py/yaml/yml/json
 
     # replace the ${key} with the value of cfg.key
     cfg = replace_cfg_vals(cfg)
