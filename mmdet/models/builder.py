@@ -45,7 +45,7 @@ def build_loss(cfg):
     return LOSSES.build(cfg)
 
 
-def build_detector(cfg, train_cfg=None, test_cfg=None):
+def build_detector(cfg, train_cfg=None, test_cfg=None): 
     """Build detector."""
     if train_cfg is not None or test_cfg is not None:
         warnings.warn(
@@ -57,3 +57,15 @@ def build_detector(cfg, train_cfg=None, test_cfg=None):
         'test_cfg specified in both outer field and model field '
     return DETECTORS.build(
         cfg, default_args=dict(train_cfg=train_cfg, test_cfg=test_cfg))
+    
+    """ 
+    tools/train.py
+    
+        model = build_detector(
+        cfg.model,
+        train_cfg=cfg.get('train_cfg'),
+        test_cfg=cfg.get('test_cfg'))
+        
+    tools/test.py
+        model = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
+    """

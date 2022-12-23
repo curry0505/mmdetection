@@ -1959,8 +1959,8 @@ class Mosaic:
     one output image. The output image is composed of the parts from each sub-
     image.
 
-    .. code:: text
-
+    .. code:: text 
+                原始图片
                         mosaic transform
                            center_x
                 +------------------------------+
@@ -1977,6 +1977,23 @@ class Mosaic:
                 +----|-------------+-----------+
                      |             |
                      +-------------+
+                    
+                mosaic后的图片 （有一条边一定会重合）
+                           center_x
+                +----+-------------------------+
+                |    |             |  pad      |
+                |    |             +           |
+                | pad|             |-----------+          
+                |    |    image1   |           |
+                |    |             |           |
+                |    |             | image2    |
+     center_y   |------+-----------+-----------|
+                |      | cropped   |           |
+                |pad   | image3    |  image4   |
+                |      |           |           |
+                +------------------+-----------+
+                
+
 
      The mosaic transform steps are as follows:
 
@@ -2011,7 +2028,7 @@ class Mosaic:
                  min_bbox_size=0,
                  bbox_clip_border=True,
                  skip_filter=True,
-                 pad_val=114,
+                 pad_val=0,
                  prob=1.0):
         assert isinstance(img_scale, tuple)
         assert 0 <= prob <= 1.0, 'The probability should be in range [0,1]. '\
@@ -2020,13 +2037,13 @@ class Mosaic:
         log_img_scale(img_scale, skip_square=True)
         self.img_scale = img_scale
         self.center_ratio_range = center_ratio_range
-        self.min_bbox_size = min_bbox_size
+        self.min_bbox_size = min_bbox_size # 和self.skip_filter配合用于过滤过小的目标，用在_filter_box_candidates()里
         self.bbox_clip_border = bbox_clip_border
         self.skip_filter = skip_filter
         self.pad_val = pad_val
         self.prob = prob
 
-    def __call__(self, results):
+    def __call__(self, results): # 这个文件的代码设计逻辑，都会重写__call__()，把类当成函数调用，所以主要的功能函数都会在这里面体现，例如这里的_mosaic_transform()
         """Call function to make a mosaic of image.
 
         Args:
@@ -2038,6 +2055,15 @@ class Mosaic:
 
         if random.uniform(0, 1) > self.prob:
             return results
+        
+        """ 
+        len(results) = 18 
+        results.keys() = dict_keys(['img_info', 'ann_info', 'img_prefix', 'seg_prefix', 
+                                    'proposal_file', 'bbox_fields', 'mask_fields', 'seg_fields', 
+                                    'filename', 'ori_filename', 'img', 'img_shape', 'ori_shape', 
+                                    'img_fields', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels', 'mix_results'])
+        results['img_shape'] = (466, 640, 3)
+        """
 
         results = self._mosaic_transform(results)
         return results
@@ -2062,17 +2088,17 @@ class Mosaic:
             results (dict): Result dict.
 
         Returns:
-            dict: Updated result dict.
-        """
+            dict: Updated result dict. result的四个key update了: 'img', 'img_shape', 'gt_bboxes', 'gt_labels'
+        """ 
 
         assert 'mix_results' in results
         mosaic_labels = []
         mosaic_bboxes = []
-        if len(results['img'].shape) == 3:
-            mosaic_img = np.full(
+        if len(results['img'].shape) == 3: # 三维图片
+            mosaic_img = np.full( # 把图片size变大4倍，用self.pad_val填充
                 (int(self.img_scale[0] * 2), int(self.img_scale[1] * 2), 3),
                 self.pad_val,
-                dtype=results['img'].dtype)
+                dtype=results['img'].dtype) 
         else:
             mosaic_img = np.full(
                 (int(self.img_scale[0] * 2), int(self.img_scale[1] * 2)),
@@ -2081,25 +2107,25 @@ class Mosaic:
 
         # mosaic center x, y
         center_x = int(
-            random.uniform(*self.center_ratio_range) * self.img_scale[1])
+            random.uniform(*self.center_ratio_range) * self.img_scale[1]) # uniform接受一个形式参数（用*前缀），表示一个可变长度的序列
         center_y = int(
             random.uniform(*self.center_ratio_range) * self.img_scale[0])
         center_position = (center_x, center_y)
 
         loc_strs = ('top_left', 'top_right', 'bottom_left', 'bottom_right')
         for i, loc in enumerate(loc_strs):
-            if loc == 'top_left':
-                results_patch = copy.deepcopy(results)
+            if loc == 'top_left': # 
+                results_patch = copy.deepcopy(results) # results的key有18个，比rsults['mix_results'][0]的key多一个(多的就是mix_results)
             else:
                 results_patch = copy.deepcopy(results['mix_results'][i - 1])
 
-            img_i = results_patch['img']
+            img_i = results_patch['img'] # img_i.shape = (334,500,3) / (466,640,3) 
             h_i, w_i = img_i.shape[:2]
             # keep_ratio resize
             scale_ratio_i = min(self.img_scale[0] / h_i,
                                 self.img_scale[1] / w_i)
-            img_i = mmcv.imresize(
-                img_i, (int(w_i * scale_ratio_i), int(h_i * scale_ratio_i)))
+            img_i = mmcv.imresize( # img_i resize后会有一条边和self.img_scale一样大
+                img_i, (int(w_i * scale_ratio_i), int(h_i * scale_ratio_i))) # img_i.shape = (427,640,3)
 
             # compute the combine parameters
             paste_coord, crop_coord = self._mosaic_combine(
@@ -2126,10 +2152,13 @@ class Mosaic:
             mosaic_labels.append(gt_labels_i)
 
         if len(mosaic_labels) > 0:
-            mosaic_bboxes = np.concatenate(mosaic_bboxes, 0)
+            mosaic_bboxes = np.concatenate(mosaic_bboxes, 0) 
             mosaic_labels = np.concatenate(mosaic_labels, 0)
+            # 效果等同于
+            # np.concatenate([[1,2,3],[3,4],[100,2]], 0) = array([1,2,3,3,4,100,2])
 
-            if self.bbox_clip_border:
+
+            if self.bbox_clip_border: # 把超出边界的部分的框截取掉
                 mosaic_bboxes[:, 0::2] = np.clip(mosaic_bboxes[:, 0::2], 0,
                                                  2 * self.img_scale[1])
                 mosaic_bboxes[:, 1::2] = np.clip(mosaic_bboxes[:, 1::2], 0,
@@ -2141,10 +2170,13 @@ class Mosaic:
 
         # remove outside bboxes
         inside_inds = find_inside_bboxes(mosaic_bboxes, 2 * self.img_scale[0],
-                                         2 * self.img_scale[1])
+                                         2 * self.img_scale[1]) # 一个布尔矩阵
         mosaic_bboxes = mosaic_bboxes[inside_inds]
         mosaic_labels = mosaic_labels[inside_inds]
 
+        import matplotlib.pyplot as plt
+        plt.save('test.png', mosaic_img)
+        
         results['img'] = mosaic_img
         results['img_shape'] = mosaic_img.shape
         results['gt_bboxes'] = mosaic_bboxes
@@ -2152,7 +2184,7 @@ class Mosaic:
 
         return results
 
-    def _mosaic_combine(self, loc, center_position_xy, img_shape_wh):
+    def _mosaic_combine(self, loc, center_position_xy, img_shape_wh):  # x和w对应横，y和h对应竖
         """Calculate global coordinate of mosaic image and local coordinate of
         cropped sub-image.
 
@@ -2168,6 +2200,10 @@ class Mosaic:
                 cropping
                 - paste_coord (tuple): paste corner coordinate in mosaic image.
                 - crop_coord (tuple): crop corner coordinate in mosaic image.
+            把mosaic image理解为画布，根据中心点划分出来的水平线和垂直线，要把四种图片覆盖在画布上，每张图片都有一个顶点
+            与中心点重合，图片可能会超出画布。
+            图片与画布会有左上和右下两个交点，
+            paste_coord指的是这两个交点在画布上的坐标，crop_coord指的是这两个交点在图片上的坐标。
         """
         assert loc in ('top_left', 'top_right', 'bottom_left', 'bottom_right')
         if loc == 'top_left':
@@ -2177,7 +2213,7 @@ class Mosaic:
                              center_position_xy[0], \
                              center_position_xy[1]
             crop_coord = img_shape_wh[0] - (x2 - x1), img_shape_wh[1] - (
-                y2 - y1), img_shape_wh[0], img_shape_wh[1]
+                y2 - y1), img_shape_wh[0], img_shape_wh[1] # 左上的这张图片，根据centor point会有一个大小，如果比原图小，原图就会被crop一部分
 
         elif loc == 'top_right':
             # index1 to top right part of image
@@ -2207,11 +2243,11 @@ class Mosaic:
                                  self.img_scale[1] * 2), \
                              min(self.img_scale[0] * 2, center_position_xy[1] +
                                  img_shape_wh[1])
-            crop_coord = 0, 0, min(img_shape_wh[0],
+            crop_coord = 0, 0, min(img_shape_wh[0], 
                                    x2 - x1), min(y2 - y1, img_shape_wh[1])
 
         paste_coord = x1, y1, x2, y2
-        return paste_coord, crop_coord
+        return paste_coord, crop_coord 
 
     def _filter_box_candidates(self, bboxes, labels):
         """Filter out bboxes too small after Mosaic."""
